@@ -71,28 +71,6 @@ class SignalOceanAggregateLoader:
 
 @timeit
 def load_commodities():
-    """
-    CL	wti
-    BRN	brent
-    HO	heating oil
-    RB	gasoline
-    IOE	cn iron ore
-    ZC	us corn
-    ZW	us wheat
-    ZS	us soybean
-    ZL	us soybean oil
-    HG	us copper
-    LMAHDS03	lme al 3m
-    LMCADS03	lme cu 3m
-    LMNIDS03	lme ni 3m
-    LMPBDS03	lme pb 3m
-    LMZSDS03	lme zn 3m
-    KC	us coffee
-    CC	us cocoa
-    SB	us raw sugar
-    PL	us platinum
-    """
-
     ALL_SYMBOLS = config.FUEL_SYMBOLS | config.DRY_SYMBOLS | config.SEC_DRY_SYMBOLS
 
     query = text(f"""

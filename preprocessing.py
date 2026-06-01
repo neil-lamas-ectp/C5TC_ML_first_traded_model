@@ -41,26 +41,6 @@ def prepare_data_rolling_backtest(cfg:PrepConfig, is_load_data = True):
     return fold_loaders, test_loaders, features, X, y
 
 
-# @timeit
-# def prepare_data(cfg:PrepConfig, is_load_data = True):
-    
-#     if is_load_data:
-#         raw_data = is_raw_data_cached(cfg)
-#     if raw_data is None:
-#         print(f"{'Current config differs from saved configs. ' if is_load_data else ''}Acquiring data...")
-#         raw_data = data_acquisition(cfg)
-#     else:
-#         print("Loaded formatted dataset")
-
-#     print("Formatting dataset...")
-#     X, y = data_transformation(*raw_data, cfg = cfg)
-
-#     fold_loaders, dates_test, X_test, y_test = build_dataloaders(X, y, cfg)
-#     features = X.columns.to_list()
-
-#     return fold_loaders, dates_test, X_test, y_test, features
-
-
 @timeit
 def data_acquisition(cfg: PrepConfig):
     """
@@ -565,95 +545,6 @@ def build_dataloaders_rolling_test(
     return fold_loaders, test_loaders
 
 
-# def build_dataloaders(
-#     X_df:pd.DataFrame, 
-#     y_series:pd.Series,
-#     cfg:PrepConfig,
-#     batch_size:int=256, 
-#     is_shuffle_training:bool=True
-# ):
-#     """
-#     - Split data into: 3 (training + validation) walk-forward expanding-window folds + test set
-#     - Split into batches 
-#     - Scale/Transform inputs and outputs according to 
-#     - Optional: Shuffle training data (which is fine since we work with a non-sequential model, e.g. not RNN)
-#     Args:
-#     - is_shuffle_training: whether to shuffle training data
-#     """
-    
-#     # Assert indexes are DatetimeIndex and sorted
-#     assert isinstance(X_df.index, pd.DatetimeIndex), f"X_df index is {type(X_df.index)}"
-#     assert isinstance(y_series.index, pd.DatetimeIndex), f"y_series index is {type(y_series.index)}"
-#     assert X_df.index.is_monotonic_increasing, "X_df index is not sorted!"
-#     assert y_series.index.is_monotonic_increasing, "X_df index is not sorted!"    
-
-#     # Assert inputs and target have same indices
-#     assert X_df.index.equals(y_series.index), "X and y indexes do not match!"
-
-#     # Define training-validation folds + test set
-#     dates = X_df.index.to_numpy()
-#     years = dates.astype("datetime64[Y]").astype(int) + 1970
-#     dataset_start, dataset_end = years.min(), years.max()
-#     year_to_last_idx = {
-#         y: np.where(years <= y)[0][-1] 
-#         for y in range(dataset_start, dataset_end+1)
-#     }
-#     # (train_start, train_end, val_start, val_end)
-#     test_start_year = dataset_end-2
-#     folds = [(0, year_to_last_idx[y], year_to_last_idx[y]+1, year_to_last_idx[y+1]) for y in range(dataset_start, test_start_year)]
-#     folds = folds[-3:]
-#     test_range = (year_to_last_idx[test_start_year]+1, year_to_last_idx[dataset_end])
-
-#     # Printing
-#     dates_dt: np.ndarray = X_df.index.to_pydatetime()
-#     for i, (t_start, t_end, v_start, v_end) in enumerate(folds):
-#         train_start_date = dates_dt[t_start].date()     # type: ignore
-#         train_end_date = dates_dt[t_end].date()         # type: ignore
-#         val_start_date = dates_dt[v_start].date()       # type: ignore
-#         val_end_date = dates_dt[v_end].date()           # type: ignore
-#         print(f"Fold {i+1}:")
-#         print(f"\tTrain:\t{train_start_date} -> {train_end_date} ({t_end - t_start + 1} days)")
-#         print(f"\tVal:\t{val_start_date} -> {val_end_date} ({v_end - v_start + 1} days)")
-#     test_start_date = dates_dt[test_range[0]].date()    # type: ignore
-#     test_end_date = dates_dt[test_range[1]].date()      # type: ignore
-#     print(f"Test set:\n\t\t{test_start_date} -> {test_end_date} ({test_range[1] - test_range[0] + 1} days)")
-
-#     # Build loaders for each fold
-#     X = torch.tensor(X_df.to_numpy(), dtype=torch.float32, device=cfg.device)
-#     y = torch.tensor(y_series.to_numpy(), dtype=torch.float32, device=cfg.device)
-
-#     fold_loaders = []
-#     for i, (train_start, train_end, val_start, val_end) in enumerate(folds):      
-#         X_train = X[train_start:train_end+1]
-#         y_train = y[train_start:train_end+1]
-#         X_val = X[val_start:val_end+1]
-#         y_val = y[val_start:val_end+1]
-
-#         train_loader = DataLoader(
-#             TensorDataset(X_train, y_train),
-#             batch_size=batch_size,
-#             shuffle=is_shuffle_training
-#         )
-        
-#         val_loader = DataLoader(
-#             TensorDataset(X_val, y_val),
-#             batch_size=batch_size,
-#             shuffle=False
-#         )
-        
-#         # Get fold span (train + val)
-#         fold_span = (dates_dt[train_start].date(), dates_dt[val_end].date()) # type: ignore
-
-#         fold_loaders.append((train_loader, val_loader, fold_span))
-    
-#     # Test set
-#     dates_test = dates_dt[test_range[0]:test_range[1]+1]
-#     X_test = X[test_range[0]:test_range[1]+1]
-#     y_test = y[test_range[0]:test_range[1]+1]
-    
-#     return fold_loaders, dates_test, X_test, y_test
-
-
 """
 DATA ACQUISITION
 """
@@ -735,40 +626,6 @@ def get_nominal_prices(
         )
 
     return pivoted
-
-
-# def get_nominal_prices(cal_date_range: pd.DatetimeIndex, cfg: PrepConfig):
-#     """
-#     Cape 5TC index nominal value for multiple tenors
-#     """
-#     # Unpack config
-#     in_dir = cfg.in_dir
-#     out_dir = cfg.out_dir
-#     start = cfg.start
-#     end = cfg.end
-#     nominal_tenors = cfg.nominal_tenors
-
-#     # Read all CSVs and combine into a single DataFrame
-#     C5TC_nominal_df = pd.concat(
-#         [
-#             pd.read_csv(in_dir / f"C5TC_{tenor}_nominal.csv", parse_dates=["date"], index_col="date")["value"]
-#             .rename(tenor)
-#             for tenor in nominal_tenors
-#         ],
-#         axis=1
-#     )
-
-#     # Reindex the whole DataFrame to date range of interest
-#     C5TC_nominal_df = C5TC_nominal_df.reindex(cal_date_range)
-
-#     # Plot all tenors in one function
-#     plot_multiple_series(
-#         series_list=[(v, k) for k, v in C5TC_nominal_df.items()],
-#         filename=out_dir / f"C5TC_nominal_{start}-{end}.png",
-#         title="C5TC Nominal"
-#     )
-
-#     return C5TC_nominal_df
 
 
 @timeit

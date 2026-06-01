@@ -21,18 +21,19 @@ import numpy as np
 
 @timeit
 def backtest(
-    df: pd.DataFrame,
+    pred: pd.Series,
     cfg: PrepConfig,
     track_dir,
     ticker: str = "C5TC",
+    # selected_strat = "binary_pos_4",
+    selected_strat = None,
 ) -> pd.DataFrame:
     tar_tenor = cfg.target_tenor
 
-    pred_df = df["y_pred"].to_frame(name=ticker)
-    pred_df.index = pd.to_datetime(pred_df.index)
+    pred.index = pd.to_datetime(pred.index)
 
-    min_year = pred_df.index.year.min()
-    max_year = pred_df.index.year.max()
+    min_year = pred.index.year.min()
+    max_year = pred.index.year.max()
 
     adj_price: pd.DataFrame = (
         universe.UNIVERSE[f"{ticker}_{tar_tenor}"]
@@ -46,15 +47,15 @@ def backtest(
     )
 
     if cfg.is_directional_target:
-        positions_dict = get_positions_directional(df, ticker, cfg, adj_price)
+        positions_dict = get_positions_directional(pred, ticker, cfg, adj_price)
     else:
-        positions_dict = get_positions(pred_df, ticker, cfg, adj_price)
+        positions_dict = get_positions(pred, cfg)
 
     all_stats = []
     best_name = None
     best_ba = None
     best_net_sharpe = float("-inf")
-    nb_datapoints = len(pred_df)
+    nb_datapoints = len(pred)
 
     bid_offer: dict[str, float | pd.Series] = {
         ticker: 200.0,
@@ -88,6 +89,8 @@ def backtest(
         )
 
         net_sharpe = ba_final.statistics["Net Sharpe"]
+        if name == selected_strat:
+            ba_to_print = ba_final
         if net_sharpe > best_net_sharpe:
             best_name = name
             best_ba = ba_final
@@ -100,8 +103,8 @@ def backtest(
 
     stats_per_pos_df = pd.concat(all_stats, ignore_index=True)
 
-    # if best_ba is not None:
-    #     print(f"Best strat is {best_name} with net Sharpe: {best_net_sharpe:.3f}")
+    if best_ba is not None:
+        print(f"Best strat is {best_name} with net Sharpe: {best_net_sharpe:.3f}")
 
     quantity_order = stats_per_pos_df["quantity"].drop_duplicates()
     out = (
@@ -149,8 +152,7 @@ def backtest(
     ax2_color = all_colors[len(top_5_strats) % len(all_colors)]
 
     ax2.plot(
-        df.index,
-        df["y_pred"],
+        pred,
         label="Prediction",
         color=ax2_color,
         alpha=0.3,
@@ -169,13 +171,17 @@ def backtest(
     fig.savefig(track_dir / filename, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    if best_ba is not None:
-        save_backend_results(best_ba, track_dir)
+    if selected_strat is not None:
+        save_backend_results(ba_to_print, track_dir, selected_strat)
+    elif best_ba is not None:
+        save_backend_results(best_ba, track_dir, best_name)
+    else:
+        raise ValueError("selected_strat ill-defined")  
 
     return out
 
 
-def save_backend_results(ba, out_dir):
+def save_backend_results(ba, out_dir, strat_name):
     # # --- Save stats
     # print(f'Net Sharpe: {ba.statistics["Net Sharpe"]:.3f}')
     # # pd.DataFrame(ba.statistics).to_csv(track_dir / f'strat_stats_{name}.csv')
@@ -190,7 +196,7 @@ def save_backend_results(ba, out_dir):
     ba.pnl_wc.plot(ax=ax)
     ax.grid()
     ax.tick_params(axis='x', rotation=45)
-    ax.set_title("P&L")
+    ax.set_title(f"P&L ({strat_name})")
     filename = create_new_filename(out_dir, "pnl", "png")
     fig.savefig(out_dir / filename, dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -198,7 +204,7 @@ def save_backend_results(ba, out_dir):
     # --- Lead Lag plot
     fig = ba.lead_lag_plot()
     fig.update_layout(
-        title="Lead Lag",
+        title=f"Lead Lag ({strat_name})",
         xaxis_tickangle=45,
     )
     fig.update_xaxes(showgrid=True)
@@ -396,32 +402,30 @@ def get_positions_directional(
 
 
 def get_positions(
-    y_pred: pd.DataFrame,
-    ticker,
+    pred_series: pd.Series,
     cfg: PrepConfig,
-    adj_price=None,
+    ticker="C5TC",
     max_risk=10.0,
-    ternary_threshs = [0.05, 0.1, 0.2, 0.5]
+    ternary_threshs = [0.05, 0.1, 0.2, 0.5],
 ) -> dict[str, pd.DataFrame]:
     """
     Build non-directional positions from analog predictions.
     """
-
     tar_win = cfg.target_win
-    # y_pred = pred_df["y_pred"].to_frame(name=ticker)
+    pred = pred_series.to_frame(name=ticker)
 
     def overlap_position(signal: pd.DataFrame, win: int) -> pd.DataFrame:
         position = signal.rolling(window=win, min_periods=1).sum()
         position *= max_risk / win
         return position
 
-    thresholds = [t for t in ternary_threshs if t <= y_pred.abs().to_numpy().max()]
+    thresholds = [t for t in ternary_threshs if t <= pred.abs().to_numpy().max()]
     signals = {
-        "propto": rolling_normalize(y_pred),
-        "binary": np.sign(y_pred),
+        "propto": rolling_normalize(pred),
+        "binary": np.sign(pred),
         **{
-            f"ternary_{thresh:g}": np.sign(y_pred).where(
-                y_pred.abs() >= thresh,
+            f"ternary_{thresh:g}": np.sign(pred).where(
+                pred.abs() >= thresh,
                 0,
             )
             for thresh in thresholds

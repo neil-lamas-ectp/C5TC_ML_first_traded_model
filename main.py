@@ -48,20 +48,14 @@ params = {
 
 
 def get_today_pos_from_dir(track_dir, sub_dir = "post_process"):
-
     new_path = create_new_dir(track_dir, sub_dir)
-
     prep_cfg, model_cfg = load_config(track_dir)
-
     _, _, features, X, y = prepare_data_rolling_backtest(prep_cfg)
     input_dim = len(features)
-
     model_path = track_dir / "model_2.pth"
     if not model_path.exists():
         raise FileNotFoundError(f"Could not find {model_path}")
     model = load_model(model_path, input_dim, model_cfg)
-
-
     return get_today_pos_from_cfg(X, y, model, prep_cfg, new_path)
 
 
@@ -71,7 +65,6 @@ def get_today_pos_from_cfg(
         model, 
         prep_cfg, 
         track_dir, 
-        ticker="C5TC",
         start=2025,
         # strats=None,
         strats=["binary_pos_4"],
@@ -86,19 +79,10 @@ def get_today_pos_from_cfg(
 
     pred = torch_to_series(y_pred, dates, name="y_pred")
     target = y.reindex(dates).rename("y_true")
-    plot_kwargs = {
-        "y_test": target,
-        "y_pred": pred,
-        "tracking_dir": track_dir,
-    }
-    plot_val_predictions(**plot_kwargs)
 
-    pred_df = (
-        pd.concat([target, pred], axis=1)
-        .dropna(subset=["y_true"])
-        .sort_index()
-    )
-    stats_df = backtest(pred_df, prep_cfg, track_dir)
+    plot_val_predictions(target, pred, track_dir)
+
+    stats_df = backtest(pred, prep_cfg, track_dir)
     
     # SHAP
     features = X.columns.to_list()
@@ -106,13 +90,7 @@ def get_today_pos_from_cfg(
     X_bg = torch.tensor(X.loc[dates_bg].values, dtype=torch.float32)
     shap_analysis(model, X_bg, X_test_ext, features, track_dir, prep_cfg)
 
-    y_pred_df = pd.DataFrame(
-        y_pred.detach().cpu().numpy(),
-        index=pd.to_datetime(dates),
-        columns=[ticker]
-    )
-
-    pos_df = get_positions(y_pred_df, ticker, prep_cfg)
+    pos_df = get_positions(pred, prep_cfg)
     # pos_df = pd.DataFrame(pos_df)
     pos_df = pd.concat(pos_df, axis=1)
 
